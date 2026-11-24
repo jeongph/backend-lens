@@ -1,0 +1,22 @@
+name: Auto release
+
+# 판정 규칙과 스크립트는 jeongph/claude-plugins에 있다.
+# 규칙을 바꾸려면 그 레포의 .github/scripts/next-version.sh를 고친다.
+#
+# 커밋 타입에서 다음 버전을 정해 plugin.json을 올리고 태그와 Release를
+# 만든다. feat은 minor, fix는 patch이고, docs와 chore만 쌓이면 아무 일도
+# 일어나지 않는다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  release:
+    # 템플릿 레포 자신은 배포 대상이 아니다. 이 줄이 없으면 템플릿을 손볼
+    # 때마다 여기서 릴리스가 만들어진다. 템플릿으로 만든 레포에서는 조건이
+    # 참이 되어 정상 동작하므로 지우지 않아도 된다.
+    if: github.repository != 'jeongph/claude-plugin-template'
+    uses: jeongph/claude-plugins/.github/workflows/auto-release.yml@main
+    permissions:
+      contents: write
