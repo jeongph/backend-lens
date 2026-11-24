@@ -1,0 +1,75 @@
+# Flyway 참조
+
+적용 버전: Flyway 10 이상의 오픈소스(Community) 기능, 대상 데이터베이스는 PostgreSQL, Spring Boot 3.x와 4.x가 앱 시작 때 마이그레이션을 실행하는 구성
+
+## 적용된 마이그레이션 수정
+
+- 의심할 코드: 기본 브랜치에 이미 있던 `V<버전>__<설명>.sql` 파일의 내용이나 파일 이름(설명 부분 포함)을 diff가 바꾼다. 주석이나 공백만 고친 경우도 포함한다.
+- 실패 시나리오: Flyway는 적용한 파일의 checksum(SQL은 CRC32)과 설명을 schema history 테이블에 저장하고, `validateOnMigrate` 기본값이 true라 migrate 전에 비교한다. 이미 적용된 환경에서는 checksum이나 description이 맞지 않아 검증이 실패한다. Spring Boot는 애플리케이션 컨텍스트를 올리는 중에 `Flyway.migrate()`를 부르므로 앱이 뜨지 않는다. 고친 내용은 그 환경에 적용되지도 않는다.
+- 문제가 아닌 경우: 그 파일이 같은 변경에서 처음 추가됐고 공유 환경에 배포된 적이 없다. 트랜잭션 안에서 돌다 실패해 PostgreSQL에서 롤백된 파일은 기록이 남지 않으므로 고쳐도 된다. 줄바꿈 문자(CRLF와 LF)만 바뀐 경우는 checksum을 줄 단위로 계산하므로 값이 같다.
+- 고치는 방향: 적용된 파일은 원래대로 되돌리고 바꿀 내용은 새 버전 파일로 쓴다. 주석 정리처럼 의도한 수정이면 배포 절차에 `repair`로 checksum을 다시 맞추는 단계를 넣는다.
+- 출처: https://documentation.red-gate.com/flyway/reference/commands/validate, https://documentation.red-gate.com/flyway/reference/exit-codes-and-error-codes/validate-error-codes, https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-validate-on-migrate-setting, https://documentation.red-gate.com/flyway/flyway-concepts/migrations/versioned-migrations, https://documentation.red-gate.com/flyway/reference/commands/repair, https://documentation.red-gate.com/flyway/flyway-concepts/migrations/migration-transaction-handling, https://docs.spring.io/spring-boot/how-to/data-initialization.html#howto.data-initialization.migration-tool.flyway, https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/internal/resolver/ChecksumCalculator.java
+
+## 브랜치 사이 버전 충돌
+
+- 의심할 코드: 새 `V<버전>__*.sql`의 버전이 기본 브랜치에 있는 버전과 같거나, 기본 브랜치의 가장 높은 버전보다 낮다. `V1_1`과 `V1.1`, `V005`와 `V5`, `V1`과 `V1.0`은 같은 버전으로 본다. 설정에 `spring.flyway.out-of-order=true`를 더하거나 `spring.flyway.ignore-migration-patterns`를 바꾼다.
+- 실패 시나리오: 같은 버전 파일이 둘이면 Flyway가 "Found more than one migration with version"으로 실패해 앱이 뜨지 않는다. 더 높은 버전이 이미 적용된 환경에 낮은 버전이 나중에 들어오면 `outOfOrder` 기본값(false)에서는 그 파일을 Ignored로 두고 실행하지 않으며, 검증이 "Detected resolved migration not applied to database"로 실패해 역시 시작이 막힌다. `outOfOrder=true`면 적용은 되지만 환경마다 적용 순서가 달라지고, Flyway는 이를 Out of Order로 표시하며 처음부터 다시 돌리면 결과가 다를 수 있다고 경고한다.
+- 문제가 아닌 경우: 새 버전이 기본 브랜치의 모든 버전보다 크다. 낮은 버전이지만 그보다 높은 버전이 아직 어느 공유 환경에도 적용되지 않았다. 적용 순서와 무관한 변경(서로 다른 테이블에 대한 독립적인 추가)에 `outOfOrder`를 쓰고 그 이유를 남겼다.
+- 고치는 방향: 병합 직전에 기본 브랜치의 가장 높은 버전보다 크게 다시 번호를 매긴다. 이미 공유 환경에 적용된 파일의 버전은 바꾸지 않는다.
+- 출처: https://documentation.red-gate.com/flyway/flyway-concepts/migrations/versioned-migrations, https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-out-of-order-setting, https://documentation.red-gate.com/flyway/reference/exit-codes-and-error-codes/validate-error-codes, https://documentation.red-gate.com/flyway/flyway-concepts/migrations/flyway-schema-history-table, https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/internal/resolver/CompositeMigrationResolver.java, https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/api/MigrationVersion.java
+
+## repeatable 마이그레이션 재실행
+
+- 의심할 코드: `R__<설명>.sql` 파일 변경, 그 안의 `OR REPLACE` 없는 `CREATE VIEW`나 `CREATE FUNCTION`, 충돌 처리 없는 `INSERT`, 실행마다 값이 바뀌는 placeholder(`${flyway:timestamp}`). versioned 마이그레이션이 repeatable로 만든 뷰가 쓰는 컬럼을 지운다.
+- 실패 시나리오: repeatable은 checksum이 바뀔 때마다 다시 적용되고, 한 번의 migrate 안에서 대기 중인 versioned를 모두 돌린 뒤 설명의 알파벳 순서로 돈다. 다시 돌 수 없는 문장이면 두 번째 적용에서 실패하거나 데이터가 중복된다. PostgreSQL의 `CREATE OR REPLACE VIEW`는 기존 컬럼의 이름, 순서, 타입을 바꿀 수 없어서 컬럼을 빼거나 바꾸면 실패한다. versioned에서 뷰가 참조하는 컬럼을 `DROP COLUMN`하면 기본 동작(RESTRICT) 때문에 versioned 쪽이 먼저 실패한다. 뷰를 다시 만드는 repeatable은 그 뒤에 돌기 때문이다.
+- 문제가 아닌 경우: `CREATE OR REPLACE`로 함수 본문을 바꾸거나 뷰 끝에 컬럼만 더하는 것처럼 몇 번 돌아도 같은 결과가 나오는 내용이다. 내용이 바뀌지 않은 repeatable은 다시 돌지 않는다.
+- 고치는 방향: repeatable은 여러 번 돌아도 안전하게 쓴다. 뷰 컬럼을 바꾸거나 빼려면 같은 파일에서 `DROP VIEW IF EXISTS` 뒤에 다시 만든다. 뷰가 의존하는 컬럼을 지울 때는 versioned 마이그레이션에서 뷰를 먼저 지운다.
+- 출처: https://documentation.red-gate.com/flyway/flyway-concepts/migrations/repeatable-migrations, https://documentation.red-gate.com/flyway/flyway-concepts/migrations, https://www.postgresql.org/docs/current/sql-createview.html, https://www.postgresql.org/docs/current/sql-altertable.html
+
+## 트랜잭션 밖에서만 도는 문장
+
+- 의심할 코드: 마이그레이션에 `CREATE [UNIQUE] INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `REINDEX ... CONCURRENTLY`, `VACUUM`처럼 PostgreSQL이 트랜잭션 블록 안에서 거부하는 문장이 있고, 같은 파일에 다른 DDL이나 DML이 섞여 있다. 설정에서 `spring.flyway.mixed`, `spring.flyway.group`, `spring.flyway.execute-in-transaction`을 바꾸거나 `V<버전>__<설명>.sql.conf` 파일을 더한다.
+- 실패 시나리오: Flyway는 마이그레이션 파일 하나를 트랜잭션 하나로 돌린다. PostgreSQL 파서가 `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `VACUUM`, `REINDEX SCHEMA` 등을 찾으면 그 파일을 트랜잭션 없이 돌린다. 같은 파일에 트랜잭션 문장이 섞이면 `mixed` 기본값(false)에서 "Detected both transactional and non-transactional statements within the same migration"으로 실패한다. `mixed=true`면 그 파일 전체가 트랜잭션 없이 돌아서 중간에 실패해도 앞 문장이 롤백되지 않는다. `REINDEX INDEX`나 `REINDEX TABLE`에 붙인 CONCURRENTLY는 자동 감지 대상이 아니라 트랜잭션 안에서 실행되어 PostgreSQL 오류로 실패한다. `group=true`면 트랜잭션 파일과 비트랜잭션 파일이 같은 묶음에 들어올 때도 실패한다.
+- 문제가 아닌 경우: CONCURRENTLY 문장 하나만 있는 파일이다(자동으로 트랜잭션 없이 돈다). 같은 변경에서 만든 빈 테이블의 인덱스를 CONCURRENTLY 없이 같은 트랜잭션에서 만든다.
+- 고치는 방향: 트랜잭션 밖 문장은 파일 하나에 하나씩 따로 둔다. 감지되지 않는 문장이나 꼭 섞어야 하는 경우에는 같은 폴더에 `V<버전>__<설명>.sql.conf`를 두고 `executeInTransaction=false`를 적되, 중간 실패 시 수동 정리가 필요하다는 점을 감안한다.
+- 출처: https://documentation.red-gate.com/flyway/flyway-concepts/migrations/migration-transaction-handling, https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-mixed-setting, https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-execute-in-transaction-setting, https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-group-setting, https://documentation.red-gate.com/flyway/reference/script-configuration, https://github.com/flyway/flyway/blob/main/flyway-database/flyway-database-postgresql/src/main/java/org/flywaydb/database/postgresql/PostgreSQLParser.java, https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/internal/sqlscript/ParserSqlScript.java, https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/internal/command/DbMigrate.java, https://www.postgresql.org/docs/current/sql-createindex.html, https://www.postgresql.org/docs/current/sql-reindex.html
+
+## CONCURRENTLY와 Flyway 잠금
+
+- 의심할 코드: `CREATE INDEX CONCURRENTLY`나 `DROP INDEX CONCURRENTLY` 마이그레이션이 추가됐는데 설정에 `spring.flyway.postgresql.transactional-lock=false`(Flyway 키는 `flyway.postgresql.transactional.lock`)가 없다.
+- 실패 시나리오: Flyway는 PostgreSQL에서 기본으로 트랜잭션 단위 advisory lock을 잡아 동시 실행을 막는다. 이 기본값에서 CONCURRENTLY 마이그레이션이 끝나지 않고 멈추는 문제가 공식 이슈로 보고되었고, Flyway 관리자가 재현한 뒤 false 설정으로 해결됨을 확인했다. 공식 문서도 이런 문장에는 false로 두라고 안내한다. Spring Boot는 시작 중에 마이그레이션을 돌리므로 앱 시작이 그대로 멈춘다.
+- 문제가 아닌 경우: 설정이 이미 false다. CONCURRENTLY 문장이 없는 마이그레이션만 있다.
+- 고치는 방향: Spring Boot 3.3 이상은 `spring.flyway.postgresql.transactional-lock=false`를 둔다. 그보다 낮은 버전에는 이 속성이 없으므로 `FlywayConfigurationCustomizer` 빈으로 같은 설정을 넣는다.
+- 출처: https://documentation.red-gate.com/flyway/reference/database-driver-reference/postgresql-database, https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-postgresql-namespace/flyway-postgresql-transactional-lock-setting, https://github.com/flyway/flyway/issues/3508, https://github.com/flyway/flyway/issues/3682, https://docs.spring.io/spring-boot/appendix/application-properties/index.html#appendix.application-properties.data-migration, https://docs.spring.io/spring-boot/3.3/appendix/application-properties/index.html, https://docs.spring.io/spring-boot/how-to/data-initialization.html#howto.data-initialization.migration-tool.flyway
+
+## 앱 시작 시 마이그레이션과 롤링 배포
+
+- 의심할 코드: 한 마이그레이션에서 컬럼이나 테이블의 이름 변경 또는 삭제, 기본값 없는 NOT NULL 추가, 타입 축소를 하고, 같은 변경에서 엔티티나 쿼리도 새 스키마에 맞춘다.
+- 실패 시나리오: Spring Boot는 애플리케이션 컨텍스트를 올리는 중에 마이그레이션을 실행한다. 롤링 배포에서는 첫 새 인스턴스가 뜨는 순간 스키마가 바뀌고, 아직 교체되지 않은 구버전 인스턴스가 옛 SQL을 보내 실패한다(사라진 컬럼 조회, 새 NOT NULL 컬럼을 빼고 하는 INSERT). 배포를 되돌려도 스키마는 그대로라 구버전이 계속 실패한다. 마이그레이션이 락을 오래 기다리면 앱 시작도 그만큼 늦어진다.
+- 문제가 아닌 경우: 구버전 코드가 모르는 nullable 컬럼, 새 테이블, 인덱스만 더한다. 구버전 앱이 다시 시작될 때 새 마이그레이션은 Future 상태로 보이지만 `ignoreMigrationPatterns` 기본값(`*:future`)이 이를 무시하므로 검증은 통과한다. 배포 중 중단을 허용하는 서비스다. 여러 인스턴스가 동시에 시작해도 Flyway가 데이터베이스 잠금으로 조율하므로 같은 마이그레이션이 두 번 돌지는 않는다.
+- 고치는 방향: expand-contract로 나눈다. 먼저 구버전과 새 버전이 모두 쓸 수 있게 넓히는 마이그레이션과 코드를 배포하고, 모든 인스턴스가 새 코드로 바뀐 뒤 다음 배포에서 옛 구조를 지운다. Flyway 공식 문서도 롤백 전략으로 운영 중인 모든 코드 버전과 스키마의 하위 호환을 유지하라고 권한다.
+- 출처: https://docs.spring.io/spring-boot/how-to/data-initialization.html#howto.data-initialization.migration-tool.flyway, https://docs.spring.io/spring-boot/how-to/data-initialization.html#howto.data-initialization.dependencies, https://documentation.red-gate.com/flyway/flyway-concepts/migrations/undo-migrations, https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-ignore-migration-patterns-setting, https://documentation.red-gate.com/flyway/flyway-concepts/migrations/flyway-schema-history-table, https://documentation.red-gate.com/flyway/reference/usage/frequently-asked-questions
+
+## PostgreSQL 모듈 의존성
+
+- 의심할 코드: 빌드 파일에 `org.flywaydb:flyway-core`만 있고 `org.flywaydb:flyway-database-postgresql`이 없다. Flyway를 10 이상으로 올리거나 Spring Boot 버전을 올려 관리되는 Flyway 버전이 10 이상이 된다. Spring Boot 4로 올리면서 `spring-boot-starter-flyway` 없이 `flyway-core`만 둔다.
+- 실패 시나리오: Flyway 10.0.0부터 PostgreSQL 지원이 별도 모듈로 분리되어, 이 모듈이 없으면 Flyway가 "Unsupported Database"로 실패하고 앱이 뜨지 않는다. Spring Boot 4는 Flyway 자동 구성을 `spring-boot-flyway` 모듈로 옮겼으므로 `flyway-core`만 있으면 시작 때 마이그레이션이 돌지 않는다.
+- 문제가 아닌 경우: Flyway 9 이하를 쓴다. Spring Boot 의존성 관리를 쓰면 `flyway-database-postgresql`에 버전을 적지 않아도 된다. Spring Boot 4에서 `spring-boot-starter-flyway`와 `flyway-database-postgresql`이 함께 있다(이 starter에는 PostgreSQL 모듈이 들어 있지 않다).
+- 고치는 방향: `flyway-database-postgresql`을 런타임 의존성에 더한다. Spring Boot 4에서는 `flyway-core` 단독 의존성을 `spring-boot-starter-flyway`로 바꾼다.
+- 출처: https://documentation.red-gate.com/flyway/reference/database-driver-reference/postgresql-database, https://documentation.red-gate.com/flyway/release-notes-and-older-versions/release-notes-for-flyway-engine, https://docs.spring.io/spring-boot/how-to/data-initialization.html#howto.data-initialization.migration-tool.flyway, https://docs.spring.io/spring-boot/3.5/how-to/data-initialization.html, https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide, https://github.com/spring-projects/spring-boot/tree/main/module/spring-boot-flyway, https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/internal/database/DatabaseTypeRegister.java
+
+## 되돌리기 부재와 실패 후 상태
+
+- 의심할 코드: `U<버전>__<설명>.sql` undo 파일을 더하거나 롤백 계획을 undo에 기댄다. `executeInTransaction=false`이거나 CONCURRENTLY처럼 트랜잭션 없이 도는 마이그레이션에 문장이 여러 개 있다.
+- 실패 시나리오: undo 명령은 Teams 에디션 기능이라 오픈소스 Flyway로는 U 파일을 실행할 수 없다. 트랜잭션 안에서 돈 마이그레이션이 PostgreSQL에서 실패하면 Flyway가 롤백하고 기록을 남기지 않는다. 트랜잭션 없이 돈 마이그레이션은 이미 실행된 문장이 남고 schema history에 실패 행이 기록되어, 다음 migrate가 "contains a failed migration"으로 막히고 앱이 계속 뜨지 않는다. 실패한 CONCURRENTLY 인덱스는 INVALID로 남는다.
+- 문제가 아닌 경우: 트랜잭션 하나로 도는 마이그레이션이다(PostgreSQL은 DDL도 롤백된다). 비트랜잭션 파일에 문장이 하나뿐이고 실패 시 정리 절차가 있다.
+- 고치는 방향: 되돌리기는 새 versioned 마이그레이션으로 앞으로 고친다. 트랜잭션 없이 도는 파일은 문장 하나만 두고, 실패하면 남은 객체(INVALID 인덱스 등)를 지운 뒤 `repair`로 실패 행을 지우고 다시 돌린다.
+- 출처: https://documentation.red-gate.com/flyway/reference/commands/undo, https://documentation.red-gate.com/flyway/flyway-concepts/migrations/undo-migrations, https://documentation.red-gate.com/flyway/flyway-concepts/migrations/migration-transaction-handling, https://documentation.red-gate.com/flyway/reference/commands/repair, https://documentation.red-gate.com/flyway/reference/exit-codes-and-error-codes/validate-error-codes, https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/internal/command/DbMigrate.java, https://www.postgresql.org/docs/current/sql-createindex.html
+
+## 이름 규칙 위반으로 무시되는 파일
+
+- 의심할 코드: 새 마이그레이션 파일 이름이 `V<버전>__<설명>.sql` 형식이 아니다. 밑줄이 하나(`V3_add_status.sql`), 버전 없음(`V__add_status.sql`), 숫자가 아닌 버전, `.sql`이 아닌 확장자, 기본 위치 `classpath:db/migration`이나 `spring.flyway.locations` 밖의 경로가 해당한다. 설정에 `spring.flyway.validate-migration-naming=true`가 없다.
+- 실패 시나리오: `validateMigrationNaming` 기본값이 false라 이름이 틀린 파일은 실행하지 않고 넘어가며 INFO 로그만 남긴다. 위치 밖의 파일은 아예 발견되지 않는다. 앱은 정상으로 뜨지만 스키마가 바뀌지 않아 새 코드가 런타임에 실패한다.
+- 문제가 아닌 경우: 버전 없는 repeatable인 `R__<설명>.sql`, 스크립트 설정 파일인 `<마이그레이션 파일 이름>.conf`다. 프로젝트가 접두사, 구분자, 접미사나 위치를 설정으로 바꿨고 파일 이름이 그 설정에 맞는다.
+- 고치는 방향: 파일 이름을 규칙에 맞추고 `spring.flyway.validate-migration-naming=true`를 켜서 잘못된 이름이 있으면 시작이 실패하게 한다.
+- 출처: https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-validate-migration-naming-setting, https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-sql-migration-separator-setting, https://documentation.red-gate.com/flyway/flyway-concepts/migrations, https://documentation.red-gate.com/flyway/reference/script-configuration, https://docs.spring.io/spring-boot/how-to/data-initialization.html#howto.data-initialization.migration-tool.flyway, https://github.com/flyway/flyway/blob/main/flyway-core/src/main/java/org/flywaydb/core/internal/resource/ResourceNameValidator.java
