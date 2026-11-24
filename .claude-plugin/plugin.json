@@ -1,10 +1,10 @@
 {
-  "name": "PLUGIN_NAME",
-  "version": "0.1.0",
-  "description": "한 줄 설명: 설치하면 무엇이 달라지는지 쓴다",
+  "name": "backend-lens",
+  "version": "0.0.0",
+  "description": "Spring 백엔드 변경을 트랜잭션, 쿼리, 마이그레이션, API 호환, 책임 분리, 변경 대응 관점의 에이전트로 나눠 리뷰합니다.",
   "author": { "name": "JeongUk Park", "url": "https://github.com/jeongph" },
-  "homepage": "https://github.com/jeongph/PLUGIN_NAME",
-  "repository": "https://github.com/jeongph/PLUGIN_NAME",
+  "homepage": "https://github.com/jeongph/backend-lens",
+  "repository": "https://github.com/jeongph/backend-lens",
   "license": "MIT",
-  "keywords": ["claude-code"]
+  "keywords": ["code-review", "backend", "spring", "jpa", "postgresql", "flyway", "claude-code"]
 }
