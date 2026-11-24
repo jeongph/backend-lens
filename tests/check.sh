@@ -53,12 +53,29 @@ else
   done | grep . && fail=1
 fi
 
-# 5. 에이전트가 정확히 6개인지
+# 3. 에이전트가 정확히 6개인지
 actual=$(ls agents/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.md$//' | sort | tr '\n' ' ')
 expected=$(printf '%s\n' $EXPECTED_AGENTS | sort | tr '\n' ' ')
 [ "$actual" = "$expected" ] || err "에이전트 목록이 다름. 기대: $expected / 실제: ${actual:-없음}"
 
-# 3, 4. frontmatter name과 공통 규칙 블록
+# 4. 커맨드의 두 표(1단계 인자 표의 둘째 칸, 5단계 선택 표의 첫 칸)가 에이전트를 빠짐없이,
+#    실제 파일 이름 그대로 가리키는지. 커맨드는 이 이름으로 subagent_type을 만든다.
+CMD=commands/review.md
+cmd_names() {
+  # $1: 표 머리 줄, $2: 에이전트 이름이 든 칸 번호(| 로 나눈 필드 번호)
+  awk -F'|' -v head="$1" -v col="$2" '
+    $0 == head { on = 1; next }
+    on && /^\|/ { v = $col; gsub(/[ \t`]/, "", v); if (v ~ /^[a-z]+(-[a-z]+)+$/) print v; next }
+    on && !/^\|/ { on = 0 }
+  ' "$CMD"
+}
+for spec in "| 인자 | 에이전트 |:3" "| 에이전트 | 조건 |:2"; do
+  head="${spec%:*}"; col="${spec##*:}"
+  names=$(cmd_names "$head" "$col" | sort -u | tr '\n' ' ')
+  [ "$names" = "$expected" ] || err "$CMD 표($head)의 에이전트가 다름. 기대: $expected / 실제: ${names:-없음}"
+done
+
+# 5, 6. frontmatter name과 공통 규칙 블록
 ref_block=""
 ref_file=""
 for f in agents/*.md; do

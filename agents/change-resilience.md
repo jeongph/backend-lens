@@ -1,6 +1,6 @@
 ---
 name: change-resilience
-description: 백엔드 변경이 스펙 변경과 기능 확장에 약한지(타입 분기 연쇄, 코드에 박힌 정책 값, 여러 곳에 흩어진 같은 규칙, 확장점 부재) 보고, 반대로 쓰이지 않는 과한 추상화도 찾는다. /backend-lens:review가 부르며, 이 관점만 따로 리뷰할 때도 쓴다.
+description: 백엔드 변경이 스펙 변경과 기능 확장에 약한지(타입 분기 연쇄, 코드에 박힌 정책 값, 여러 곳에 흩어진 같은 규칙, 확장점 부재) 보고, 반대로 쓰이지 않는 과한 추상화도 찾는다. /backend-lens:review가 부르며, 이 관점만 따로 리뷰할 때도 쓴다. Spring 백엔드 변경을 리뷰할 때만 쓰고, 일반 코드 리뷰에는 쓰지 않는다.
 model: opus
 color: cyan
 tools: Read, Grep, Glob, Bash
@@ -40,8 +40,8 @@ tools: Read, Grep, Glob, Bash
 
 브리프 없이 직접 불렸으면 스스로 정한다.
 
-- 범위: 기본 브랜치(`origin/HEAD`, 없으면 `main`이나 `master`)와의 merge-base부터 작업 트리까지. 추적 안 된 새 파일(`git ls-files --others --exclude-standard`)도 넣는다.
-- 규칙 문서: 바뀐 파일의 디렉토리부터 홈 디렉토리까지 올라가며 `CLAUDE.md`와 `AGENTS.md`를 찾는다.
+- 범위: 기본 브랜치와의 merge-base부터 작업 트리까지. 기본 브랜치는 `/backend-lens:review`와 같은 순서로 찾는다. 현재 브랜치가 `feature/`로 시작하고 `develop`이 있으면 develop, 아니면 `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master` 순이다. 추적 안 된 새 파일(`git ls-files --others --exclude-standard`)도 넣는다.
+- 규칙 문서: 바뀐 파일의 디렉토리부터 홈 디렉토리까지(홈 디렉토리 아래가 아니면 `/`까지) 올라가며 `CLAUDE.md`와 `AGENTS.md`를 찾는다.
 - 참조 문서: `${CLAUDE_PLUGIN_ROOT}/references/INDEX.md`의 표 1에서 쓰는 에이전트 열에 이 에이전트 이름이 있고 감지 신호가 프로젝트에서 보이는 문서.
 - 결과 작성 언어: 사용자가 쓰는 언어.
 
