@@ -37,10 +37,10 @@
 ## Kotlin에서 던지는 체크 예외와 롤백
 
 - 의심할 코드: `@Transactional` 함수 안에서 JVM 기준 체크 예외(`IOException`, `Exception`을 상속한 직접 만든 예외)를 던지거나 그대로 전파한다. `class OrderException : Exception()`처럼 `RuntimeException`이 아닌 `Exception`을 상속한 도메인 예외.
-- 실패 시나리오: Kotlin은 모든 예외를 unchecked로 다뤄 컴파일러가 알려 주지 않지만, Spring의 기본 롤백 규칙은 JVM 타입으로 판단해 RuntimeException과 Error만 롤백한다. `Exception`을 상속한 예외가 나가면 그 전까지의 변경이 커밋된다. 또 프록시를 거친 메서드에서 나간 체크 예외는 기본으로 UndeclaredThrowableException으로 감싸지므로, 호출 쪽의 `catch (e: OrderException)`이 잡지 못한다.
-- 문제가 아닌 경우: 도메인 예외가 `RuntimeException`이나 그 하위를 상속한다. `@Transactional(rollbackFor = [Exception::class])`가 있다. Spring Framework 6.2 이상에서 `@EnableTransactionManagement(rollbackOn = RollbackOn.ALL_EXCEPTIONS)`를 설정했다(Spring 문서는 Kotlin 애플리케이션에 이 설정을 권한다). 체크 예외를 함수 안에서 잡아 런타임 예외로 바꾼다.
-- 고치는 방향: 도메인 예외는 `RuntimeException`을 상속하게 하고, 라이브러리의 체크 예외는 잡아서 감싼다. 6.2 이상이면 ALL_EXCEPTIONS를 전역으로 켠다. 원래 예외 타입으로 받아야 하면 `@Throws(IOException::class)`를 붙인다.
-- 출처: https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html, https://docs.spring.io/spring-framework/reference/languages/kotlin/spring-projects-in.html#checked-exceptions, https://kotlinlang.org/docs/exceptions.html
+- 실패 시나리오: Kotlin은 모든 예외를 unchecked로 다뤄 컴파일러가 알려 주지 않지만, Spring의 기본 롤백 규칙은 JVM 타입으로 판단해 RuntimeException과 Error만 롤백한다. `Exception`을 상속한 예외가 나가면 그 전까지의 변경이 커밋된다. 프록시가 체크 예외를 감싸는지는 프록시 종류에 따라 다르다. CGLIB 프록시(Spring Boot 기본)는 Kotlin 클래스에서 나간 체크 예외를 그대로 전파하므로 호출 쪽의 `catch (e: OrderException)`이 잡는다. 인터페이스 기반 JDK 프록시(`spring.aop.proxy-target-class=false`에서 인터페이스로 주입)에서는 선언되지 않은 체크 예외가 UndeclaredThrowableException으로 감싸져 잡지 못한다. Spring 레퍼런스 문서는 감싼다고만 적지만, 6.0부터 7.x까지의 CglibAopProxy 소스는 Kotlin 타입을 따로 처리해 감싸지 않는다.
+- 문제가 아닌 경우: 도메인 예외가 `RuntimeException`이나 그 하위를 상속한다. CGLIB 프록시를 거친 Kotlin 클래스의 체크 예외를 원래 타입으로 catch하는 코드(감싸지지 않으므로 잡힌다). `@Transactional(rollbackFor = [Exception::class])`가 있다. Spring Framework 6.2 이상에서 `@EnableTransactionManagement(rollbackOn = RollbackOn.ALL_EXCEPTIONS)`를 설정했다(Spring 문서는 Kotlin 애플리케이션에 이 설정을 권한다). 체크 예외를 함수 안에서 잡아 런타임 예외로 바꾼다.
+- 고치는 방향: 도메인 예외는 `RuntimeException`을 상속하게 하고, 라이브러리의 체크 예외는 잡아서 감싼다. 6.2 이상이면 ALL_EXCEPTIONS를 전역으로 켠다. JDK 프록시를 쓰면서 원래 예외 타입으로 받아야 하면 `@Throws(IOException::class)`를 붙인다. CGLIB 프록시에서는 `@Throws`가 없어도 원래 타입으로 전파된다.
+- 출처: https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html, https://docs.spring.io/spring-framework/reference/languages/kotlin/spring-projects-in.html#checked-exceptions, https://kotlinlang.org/docs/exceptions.html, https://github.com/spring-projects/spring-framework/blob/6.1.x/spring-aop/src/main/java/org/springframework/aop/framework/CglibAopProxy.java, https://github.com/spring-projects/spring-framework/blob/main/spring-aop/src/main/java/org/springframework/aop/framework/CglibAopProxy.java
 
 ## jackson-module-kotlin: 요청에서 빠진 non-null 필드
 
@@ -77,10 +77,10 @@
 ## Kotlin null 여부와 DB 컬럼 제약 불일치
 
 - 의심할 코드: 엔티티 프로퍼티의 Kotlin 타입과 컬럼 제약이 다르다. non-null 타입(`var memo: String`)인데 컬럼이 NULL을 허용하거나, 마이그레이션으로 nullable 컬럼을 추가했는데 엔티티는 non-null이다. nullable 타입(`var paidAt: Instant?`)인데 컬럼은 NOT NULL이다. NOT NULL을 `@Column(nullable = false)`로만 표시했다.
-- 실패 시나리오: JPA는 엔티티를 채울 때 필드에 값을 직접 넣으므로 DB의 NULL이 non-null 프로퍼티에 그대로 들어가고, 오류는 그 값을 쓰는 곳에서 NullPointerException으로 늦게 난다(Kotlin의 런타임 null 검사는 공개 함수의 파라미터에 붙는다). nullable 프로퍼티를 null로 둔 채 저장하면 NOT NULL 위반이 flush나 커밋 때 DB 예외로 난다. `@Column(nullable = false)`는 스키마 생성에만 쓰이고, 저장 전 검사는 `@Basic(optional = false)`나 Bean Validation `@NotNull`이 한다.
+- 실패 시나리오: JPA는 엔티티를 채울 때 필드에 값을 직접 넣으므로 DB의 NULL이 non-null 프로퍼티에 그대로 들어가고, 오류는 그 값을 쓰는 곳에서 NullPointerException으로 늦게 난다(Kotlin의 런타임 null 검사는 공개 함수의 파라미터에 붙는다). nullable 프로퍼티를 null로 둔 채 저장하면 NOT NULL 위반이 flush나 커밋 때 DB 예외로 난다. `@Column(nullable = false)`는 스키마 생성에만 쓰이고, 저장 전 검사는 `@Basic(optional = false)`나 Bean Validation `@NotNull`이 한다. 다만 Hibernate의 `@Basic(optional = false)` 검사(`hibernate.check_nullability`)는 Bean Validation이 클래스패스에 있으면 기본으로 꺼지므로, 그 구성에서는 `@NotNull`이 저장 전 검사를 맡고 `@Basic(optional = false)`만 있으면 DB 제약 위반으로 난다.
 - 문제가 아닌 경우: 타입과 제약이 맞고 non-null 컬럼에는 생성자 인자나 기본값으로 항상 값이 들어간다. `@GeneratedValue` id를 `var id: Long? = null`로 둔 것은 Kotlin 문서가 권하는 형태다.
 - 고치는 방향: Kotlin 타입의 null 여부를 컬럼 제약과 맞추고 NOT NULL은 `@Basic(optional = false)`나 `@NotNull`로도 표시한다. nullable 컬럼을 추가하는 마이그레이션에서는 엔티티 타입도 nullable로 바꾼다.
-- 출처: https://kotlinlang.org/docs/kotlin-jpa-plugin.html, https://kotlinlang.org/docs/java-to-kotlin-interop.html, https://docs.hibernate.org/orm/7.1/introduction/html_single/Hibernate_Introduction.html#basic-attributes
+- 출처: https://kotlinlang.org/docs/kotlin-jpa-plugin.html, https://kotlinlang.org/docs/java-to-kotlin-interop.html, https://docs.hibernate.org/orm/7.1/introduction/html_single/Hibernate_Introduction.html#basic-attributes, https://docs.hibernate.org/orm/7.1/userguide/html_single/Hibernate_User_Guide.html#settings-hibernate.check_nullability
 
 ## 엔티티의 val 프로퍼티와 lateinit
 

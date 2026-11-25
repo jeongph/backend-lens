@@ -13,10 +13,10 @@
 ## IN 절 파라미터 확장과 긴 목록
 
 - 의심할 코드: `where id in (:ids)`에 `List`를 넘기는 `NamedParameterJdbcTemplate`이나 `JdbcClient` 코드. 목록 크기가 요청 입력이나 앞선 조회 결과로 정해지는 경우. 빈 목록이 들어올 수 있는 경우. 위치 파라미터 `in (?)` 하나에 `List`를 넘기는 코드.
-- 실패 시나리오: 이름 있는 파라미터에 넘긴 컬렉션은 원소 수만큼 `?`로 펼쳐진다. PgJDBC 기본 모드(확장 쿼리 프로토콜)에서는 한 문장의 바인드 파라미터가 65535개로 제한되어 그보다 긴 목록은 실행되지 않는다. 빈 목록이면 SQL이 `in ()`이 되어 PostgreSQL 문법 오류가 난다. 위치 파라미터 `?`는 펼쳐지지 않으므로 `List` 하나를 넘기면 의도한 조회가 되지 않는다.
-- 문제가 아닌 경우: 목록 크기에 코드상 상한(페이지 크기 등)이 있고, 빈 목록이면 호출 전에 반환하는 경우. `JdbcClient`는 이름 있는 파라미터를 쓰면 `NamedParameterJdbcTemplate`으로 실행되어 같은 확장이 적용되므로 정상이다.
-- 고치는 방향: 빈 목록은 쿼리 전에 걸러 빈 결과를 돌려준다. 길이가 열린 목록은 배열 파라미터 하나로 `where id = any(?)`에 넘기거나(PgJDBC는 `Long[]` 같은 배열을 `setObject`로 받는다) 일정 크기로 나눠 조회한다.
-- 출처: https://docs.spring.io/spring-framework/reference/data-access/jdbc/parameter-handling.html#jdbc-in-clause, https://github.com/spring-projects/spring-framework/blob/v7.1.0/spring-jdbc/src/main/java/org/springframework/jdbc/core/namedparam/NamedParameterUtils.java, https://github.com/spring-projects/spring-framework/blob/v7.1.0/spring-jdbc/src/main/java/org/springframework/jdbc/core/simple/DefaultJdbcClient.java, https://jdbc.postgresql.org/documentation/use/, https://jdbc.postgresql.org/documentation/server-prepare/#arrays, https://www.postgresql.org/docs/current/functions-comparisons.html#FUNCTIONS-COMPARISONS-ANY-SOME
+- 실패 시나리오: 이름 있는 파라미터에 넘긴 컬렉션은 원소 수만큼 `?`로 펼쳐진다. `JdbcClient`의 이름 있는 파라미터도 내부에서 `NamedParameterJdbcTemplate`으로 실행되어 같은 방식으로 펼쳐지므로 아래 문제가 똑같이 생긴다. PgJDBC 기본 모드(확장 쿼리 프로토콜)에서는 한 문장의 바인드 파라미터가 42.4.0 이상에서 65535개, 42.3 이하에서 32767개로 제한되어 그보다 긴 목록은 실행되지 않는다(Spring Boot 3.x와 4.x의 기본 드라이버는 42.5 이상이다). 빈 목록이면 SQL이 `in ()`이 되어 PostgreSQL 문법 오류가 난다. 위치 파라미터 `?`는 펼쳐지지 않으므로 `JdbcTemplate`에 `List` 하나를 넘기면 의도한 조회가 되지 않고, `JdbcClient`의 위치 파라미터에 목록을 넘기면 바인딩할 때 `IllegalArgumentException`이 난다.
+- 문제가 아닌 경우: 목록 크기에 코드상 상한(페이지 크기 등)이 있고, 빈 목록이면 호출 전에 반환하는 경우.
+- 고치는 방향: 빈 목록은 쿼리 전에 걸러 빈 결과를 돌려준다. 길이가 열린 목록은 배열 파라미터 하나로 `where id = any(?)`에 넘기거나(PgJDBC는 `Long[]` 같은 배열을 `setObject`로 받는다) 일정 크기로 나눠 조회한다. 배열은 이름 있는 파라미터(`:ids`)나 `JdbcClient`의 `param(ids)`로 넘긴다. `jdbcTemplate.query(sql, rowMapper, ids)`처럼 `Long[]`을 가변 인자 자리에 그대로 넘기면 Java가 배열을 인자 목록으로 펼쳐 파라미터 수가 맞지 않으므로 `new Object[] { ids }`로 감싼다.
+- 출처: https://docs.spring.io/spring-framework/reference/data-access/jdbc/parameter-handling.html#jdbc-in-clause, https://github.com/spring-projects/spring-framework/blob/v7.1.0/spring-jdbc/src/main/java/org/springframework/jdbc/core/namedparam/NamedParameterUtils.java, https://github.com/spring-projects/spring-framework/blob/v7.1.0/spring-jdbc/src/main/java/org/springframework/jdbc/core/simple/DefaultJdbcClient.java, https://jdbc.postgresql.org/documentation/use/, https://jdbc.postgresql.org/documentation/server-prepare/#arrays, https://www.postgresql.org/docs/current/functions-comparisons.html#FUNCTIONS-COMPARISONS-ANY-SOME, https://github.com/pgjdbc/pgjdbc/blob/REL42.4.0/pgjdbc/src/main/java/org/postgresql/core/PGStream.java, https://github.com/spring-projects/spring-framework/blob/v7.1.0/spring-jdbc/src/main/java/org/springframework/jdbc/core/JdbcTemplate.java
 
 ## PostgreSQL 드라이버의 reWriteBatchedInserts
 
@@ -46,9 +46,9 @@
 
 - 의심할 코드: "없으면 만든다"를 SELECT와 INSERT로 나눈 코드(`exists`나 `count` 조회 뒤 INSERT). `ON CONFLICT DO NOTHING RETURNING id` 결과를 `queryForObject`나 `single()`로 받는 코드. 대상 칼럼에 unique 제약이 있는지 확인되지 않은 `ON CONFLICT (col)`. 중복 키 예외를 잡고 같은 트랜잭션에서 계속 진행하는 코드.
 - 실패 시나리오: SELECT 후 INSERT는 동시 요청 두 개가 둘 다 "없음"을 보고 둘 다 INSERT한다. unique 제약이 없으면 중복 행이 생기고, 있으면 한쪽이 `DuplicateKeyException`으로 실패한다. `DO NOTHING`이 충돌하면 갱신 건수는 0이고 `RETURNING`도 행을 돌려주지 않으므로 `queryForObject`가 `EmptyResultDataAccessException`을 던진다. conflict_target에 맞는 unique 인덱스가 없으면 문장 자체가 오류다. PostgreSQL은 트랜잭션 블록 안에서 문장이 실패하면 트랜잭션을 중단 상태로 만들어, 예외를 잡은 뒤 같은 트랜잭션에서 보낸 SQL은 모두 거부된다.
-- 문제가 아닌 경우: unique 제약이 있고 중복을 사용자 오류로 돌려주는 것이 요구사항인 경우. `ON CONFLICT DO UPDATE`는 동시 실행에서도 INSERT나 UPDATE 중 하나를 원자적으로 보장한다. `DO NOTHING` 뒤 갱신 건수 0을 "이미 있음"으로 처리하는 코드.
+- 문제가 아닌 경우: unique 제약이 있고 중복을 사용자 오류로 돌려주는 것이 요구사항인 경우. `ON CONFLICT DO UPDATE`는 동시 실행에서도 INSERT나 UPDATE 중 하나를 원자적으로 보장한다. `DO NOTHING` 뒤 갱신 건수 0을 "이미 있음"으로 처리하는 코드. 예외를 savepoint로 되돌린 뒤 계속하는 코드(`Propagation.NESTED`, 직접 쓴 `SAVEPOINT`와 `ROLLBACK TO`, PgJDBC `autosave`)는 트랜잭션 중단 상태와 무관하다.
 - 고치는 방향: unique 제약을 두고 `INSERT ... ON CONFLICT (key) DO NOTHING`이나 `DO UPDATE`를 쓴다. 기존 행의 ID가 필요하면 0행일 때 다시 SELECT하거나, PostgreSQL 19 이상이면 `ON CONFLICT DO SELECT ... RETURNING`을 쓴다. 여러 행을 한 번에 넣는 `DO UPDATE`는 같은 키가 두 번 나오면 오류이므로 입력에서 중복을 먼저 없앤다.
-- 출처: https://www.postgresql.org/docs/18/sql-insert.html#SQL-ON-CONFLICT, https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT, https://www.postgresql.org/docs/current/tutorial-transactions.html
+- 출처: https://www.postgresql.org/docs/18/sql-insert.html#SQL-ON-CONFLICT, https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT, https://www.postgresql.org/docs/current/tutorial-transactions.html, https://jdbc.postgresql.org/documentation/use/
 
 ## SELECT ... FOR UPDATE
 
