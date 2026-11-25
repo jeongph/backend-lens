@@ -1,6 +1,6 @@
 ---
 description: 백엔드 변경을 관점별 에이전트로 나눠 리뷰하고 결과를 하나로 합친다
-argument-hint: "[transaction|query|migration|api|responsibility|change|all ...] [#PR번호 | --base <ref>]"
+argument-hint: "[transaction|query|migration|api|responsibility|change|design|all ...] [#PR번호 | --base <ref>]"
 allowed-tools: Read, Grep, Glob, Agent, Task, Bash(git diff:*), Bash(git merge-base:*), Bash(git rev-parse:*), Bash(git symbolic-ref:*), Bash(git ls-files:*), Bash(git log:*), Bash(git status:*), Bash(git branch:*), Bash(git show:*), Bash(gh pr view:*), Bash(gh pr diff:*), Bash(ls:*), Bash(printenv HOME)
 ---
 
@@ -11,7 +11,7 @@ allowed-tools: Read, Grep, Glob, Agent, Task, Bash(git diff:*), Bash(git merge-b
 
 이 커맨드는 직접 리뷰하지 않는다. 리뷰 범위와 맥락을 모아 관점별 에이전트에 나눠 주고, 돌아온 결과를 하나로 합친다. 커맨드가 스스로 지적을 만들거나 에이전트의 지적을 다시 거르지 않는다. 파일을 고치지 않는다.
 
-Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻은 값(레포 루트, 기준 SHA 등)은 매번 명령에 직접 넣는다.
+Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻은 값(레포 루트, 기준 SHA 등)은 매번 명령에 직접 넣는다. Bash에서 반복문, 파이프, `&&` 연결을 쓰지 않는다. 위에서 허용한 단일 명령만 쓰고, 여러 파일을 확인할 때는 Glob이나 Read를 쓴다. 허용 목록 밖의 형태는 사용자에게 권한 확인을 띄운다.
 
 ## 1. 인자 해석
 
@@ -23,15 +23,20 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 | `api` | `api-compatibility` |
 | `responsibility` | `responsibility-boundary` |
 | `change` | `change-resilience` |
-| `all` | 5단계에서 자동으로 고른다 |
+| `design` | `responsibility-boundary`, `change-resilience` |
+| `all` | 6개 에이전트 모두를 후보로 5단계에서 자동으로 고른다 |
+| (관점 없음) | 정확성 관점 4개(`transaction-concurrency`, `query-performance`, `migration-safety`, `api-compatibility`)를 후보로 5단계에서 자동으로 고른다 |
 
-- 관점은 여러 개 줄 수 있다. 관점을 주지 않았거나 `all`이 섞여 있으면 `all`로 본다.
+- 관점을 주지 않으면 정확성 관점 4개만 후보로 삼는다. 설계 관점 두 개(`responsibility-boundary`, `change-resilience`)는 지적 대부분이 Suggestion이라, `responsibility`, `change`, `design`, `all`로 요청할 때만 돌린다.
+- 관점은 여러 개 줄 수 있다. `all`이 섞여 있으면 `all`로 본다.
 - `#123`이나 `123`처럼 PR 번호를 주면 그 PR을 리뷰한다.
 - `--base <ref>`를 주면 그 ref를 기준으로 삼는다.
 - PR 번호와 `--base`를 함께 주거나, 위에 없는 인자가 있으면 아래 사용법을 보여 주고 멈춘다.
 
 ```
-/backend-lens:review                      기본 브랜치와 갈라진 지점부터 작업 트리까지, 관점 자동 선택
+/backend-lens:review                      기본 브랜치와 갈라진 지점부터 작업 트리까지, 정확성 관점 자동 선택
+/backend-lens:review design               책임 분리와 변경 대응만
+/backend-lens:review all                  6개 관점 모두 자동 선택
 /backend-lens:review transaction query    두 관점만
 /backend-lens:review #42                  PR 42
 /backend-lens:review --base develop       develop과 갈라진 지점부터
@@ -82,7 +87,7 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 
 ## 5. 에이전트 고르기
 
-사용자가 관점을 정했으면 그 에이전트만 고른다. `all`이면 바뀐 백엔드 파일의 경로와 diff 내용으로 고른다.
+관점 이름이나 `design`을 줬으면 그 에이전트만 고른다. 관점을 주지 않았거나 `all`이면 1단계의 후보 중에서 바뀐 백엔드 파일의 경로와 diff 내용으로 고른다.
 
 - diff 내용 검사는 `git diff <기준 SHA> --name-only -G'<정규식>' -- <백엔드 파일들>`로 하고, 추적 안 된 파일은 Grep으로 본다. PR 모드에서는 `gh pr diff <N>`의 내용을 본다.
 - 아래 조건 중 하나라도 맞으면 그 에이전트를 넣는다. 애매하면 넣는다. 결함을 놓치는 비용이 에이전트 하나를 더 돌리는 비용보다 크다.
@@ -93,11 +98,11 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 | `api-compatibility` | `@RestController`, `@Controller`, `@RequestMapping`, `@GetMapping` 계열, `@ControllerAdvice`, `@ExceptionHandler`가 들어간 변경. 경로나 파일 이름에 `controller`, `request`, `response`, `dto`, `api`, `errorcode`, `exception`이 들어간 파일(대소문자 무시). `ObjectMapper`, `JsonMapper`, `@Json`, `spring.jackson`이 들어간 변경. OpenAPI 파일. DTO가 참조하는 enum의 변경. 빌드 파일에서 Spring Boot나 Jackson 버전 변경 |
 | `transaction-concurrency` | `@Transactional`, `TransactionTemplate`, `@Lock`, `@Version`, `LockModeType`, `FOR UPDATE`, `@Async`, `@Scheduled`, `@TransactionalEventListener`, `@EventListener`, `ApplicationEventPublisher`, `synchronized`, `Lock`, `Mutex`, `@Retryable`가 들어간 변경. 파일 이름에 `Service`, `UseCase`, `Facade`, `Handler`, `Listener`, `Scheduler`, `Job`, `Consumer`, `Processor`가 들어간 파일 |
 | `query-performance` | 파일 이름에 `Repository`, `Dao`, `Query`, `Mapper`, `Assembler`, `Converter`가 들어간 파일. `@Query`, `JPAQueryFactory`, `JdbcTemplate`, `JdbcClient`, `@OneToMany`, `@ManyToOne`, `@OneToOne`, `@ManyToMany`, `fetch =`, `@EntityGraph`, `@BatchSize`가 들어간 변경. 인덱스를 만들거나 지우는 마이그레이션 |
-| `responsibility-boundary` | 백엔드 `src/main/**` 코드가 하나라도 바뀜 |
-| `change-resilience` | 백엔드 `src/main/**` 코드가 하나라도 바뀜 |
+| `responsibility-boundary` | `all`일 때만 후보. 백엔드 `src/main/**` 코드가 하나라도 바뀜 |
+| `change-resilience` | `all`일 때만 후보. 백엔드 `src/main/**` 코드가 하나라도 바뀜 |
 
 - 고른 에이전트가 하나도 없으면 바뀐 백엔드 파일과 어느 관점에도 해당하지 않은 이유를 보여 주고 끝낸다.
-- 고르지 않은 에이전트는 머리말에 "건너뜀"과 한 줄 이유를 적는다.
+- 고르지 않은 에이전트는 머리말에 "건너뜀"과 한 줄 이유를 적는다. 관점 없이 불러서 설계 관점을 돌리지 않았으면 "요청할 때만 돈다(`design` 또는 `all`)"로 적는다.
 
 ## 6. 에이전트 실행
 
