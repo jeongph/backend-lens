@@ -7,6 +7,8 @@
 # 표와 실제 파일이 어긋나거나, 에이전트마다 복사해 둔 공통 규칙 블록이
 # 서로 달라지면 리뷰 결과의 형식과 근거가 흔들린다. 그 어긋남을 여기서 잡는다.
 set -uo pipefail
+# macOS awk는 UTF-8 로캘에서 한글 문자열을 서로 같다고 비교한다. 바이트 비교로 고정한다.
+export LC_ALL=C
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -78,6 +80,8 @@ done
 # 5, 6. frontmatter name과 공통 규칙 블록
 ref_block=""
 ref_file=""
+mismatched=""
+block_count=0
 for f in agents/*.md; do
   [ -f "$f" ] || continue
   base=$(basename "$f" .md)
@@ -90,12 +94,23 @@ for f in agents/*.md; do
   [ "$start_line" -lt "$end_line" ] || { err "${f}: 공통 규칙 블록의 끝 표시가 시작 표시보다 앞에 있음"; continue; }
   # $(...)는 끝 줄바꿈을 지우므로 표시 문자를 붙여 빈 줄 차이까지 비교한다.
   block=$(awk -v s="$START" -v e="$END" '$0==s {on=1; next} $0==e {on=0} on' "$f"; printf x)
+  block_count=$((block_count + 1))
   if [ -z "$ref_file" ]; then
     ref_block="$block"; ref_file="$f"
   elif [ "$block" != "$ref_block" ]; then
-    err "${f}: 공통 규칙 블록이 ${ref_file}과 다름"
+    mismatched="$mismatched $f"
   fi
 done
+
+# 첫 파일만 다르면 나머지가 모두 어긋나 보이므로, 그때는 첫 파일을 짚는다.
+mismatch_count=$(printf '%s\n' $mismatched | grep -c .)
+if [ "$mismatch_count" -gt 0 ]; then
+  if [ "$block_count" -gt 2 ] && [ "$mismatch_count" -eq $((block_count - 1)) ]; then
+    err "${ref_file}: 공통 규칙 블록이 다른 에이전트 파일들과 다름"
+  else
+    for f in $mismatched; do err "${f}: 공통 규칙 블록이 ${ref_file}의 블록과 다름"; done
+  fi
+fi
 
 if [ "$fail" -eq 0 ]; then
   echo OK

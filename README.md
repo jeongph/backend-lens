@@ -49,7 +49,7 @@ Spring 백엔드 변경을 트랜잭션, 쿼리, 마이그레이션, API 호환,
 
 기본 범위는 커밋한 변경, 커밋하지 않은 변경, 아직 `git add`하지 않은 새 파일을 모두 포함한다. 기본 브랜치는 `origin/HEAD`로 찾고, `feature/` 브랜치에서 `develop`이 있으면 develop을 쓴다. 기본 브랜치를 찾지 못하면 추측하지 않고 `--base`를 달라고 한다.
 
-결과는 Critical(데이터 손실, 장애, 정합성 깨짐), Important(조건이 맞으면 문제가 됨), Suggestion(구조 개선) 순으로 보여 준다. Suggestion은 기본으로 개수만 적는다. 같은 대화에서 "Suggestion 보여 줘"라고 하면 다시 돌리지 않고 보여 주고, 처음부터 보려면 `--suggestions`를 붙인다. 설계 관점을 이름(`responsibility`, `change`, `design`)으로 요청하면 Suggestion도 함께 보여 준다. `all`은 설계 관점까지 돌리지만 Suggestion은 숨기므로, 설계 관점 결과를 보려면 `design`을 쓰거나 `--suggestions`를 붙인다.
+결과는 Critical(데이터 손실, 장애, 정합성 깨짐), Important(조건이 맞으면 문제가 됨), Suggestion(구조 개선) 순으로 보여 준다. Suggestion은 기본으로 개수만 적는다. 같은 대화에서 "Suggestion 보여 줘"라고 하면 다시 돌리지 않고 보여 주고, 처음부터 보려면 `--suggestions`를 붙인다. 설계 관점을 이름(`responsibility`, `change`, `design`)으로 요청하면 Suggestion도 함께 보여 준다. `all`은 설계 관점까지 돌리지만 Suggestion은 숨기므로, 설계 관점의 Suggestion까지 보려면 `design`을 쓰거나 `--suggestions`를 붙인다.
 
 ## 관점
 
@@ -93,7 +93,7 @@ Spring 백엔드 변경을 트랜잭션, 쿼리, 마이그레이션, API 호환,
 
 참조 문서는 항목마다 의심할 코드, 실패 시나리오, 문제가 아닌 경우, 고치는 방향, 공식 출처를 갖는다. Liquibase, MySQL, MyBatis, jOOQ, WebFlux와 R2DBC, Exposed, MongoDB는 감지하면 머리말에 "참조 문서 없이 일반 원칙으로 본 기술"로 알린다.
 
-새 기술을 더할 때는 `references/`에 문서 하나를 만들고 `references/INDEX.md` 표에 행 하나를 더한다. 기술 지식은 참조 문서에만 둔다. 다만 마이그레이션 파일 경로처럼 커맨드의 선택 조건에 적힌 패턴은 기술에 따라 함께 더해야 할 수 있다.
+새 기술을 더할 때는 `references/`에 문서 하나를 만들고 `references/INDEX.md` 표에 행 하나를 더한다. 기술 지식은 참조 문서에만 둔다. 다만 마이그레이션 파일 경로처럼 커맨드의 변경 수집과 에이전트 선택 조건에 적힌 패턴은 기술에 따라 함께 더해야 할 수 있다(예: Liquibase의 changelog 경로).
 
 ## 예시
 
