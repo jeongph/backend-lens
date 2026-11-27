@@ -1,6 +1,6 @@
 ---
 description: 백엔드 변경을 관점별 에이전트로 나눠 리뷰하고 결과를 하나로 합친다
-argument-hint: "[transaction|query|migration|api|responsibility|change|design|all ...] [#PR번호 | --base <ref>]"
+argument-hint: "[transaction|query|migration|api|responsibility|change|design|all ...] [#PR번호 | --base <ref>] [--suggestions]"
 allowed-tools: Read, Grep, Glob, Agent, Task, Bash(git diff:*), Bash(git merge-base:*), Bash(git rev-parse:*), Bash(git symbolic-ref:*), Bash(git ls-files:*), Bash(git log:*), Bash(git status:*), Bash(git branch:*), Bash(git show:*), Bash(gh pr view:*), Bash(gh pr diff:*), Bash(ls:*), Bash(printenv HOME)
 ---
 
@@ -31,6 +31,7 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 - 관점은 여러 개 줄 수 있다. `all`이 섞여 있으면 `all`로 본다.
 - `#123`이나 `123`처럼 PR 번호를 주면 그 PR을 리뷰한다.
 - `--base <ref>`를 주면 그 ref를 기준으로 삼는다.
+- `--suggestions`를 주면 7단계에서 Suggestion도 모두 보여 준다. 주지 않으면 Suggestion은 개수만 적는다. 단, 설계 관점(`responsibility`, `change`, `design`)을 이름으로 요청했으면 `--suggestions`가 없어도 보여 준다. 설계 관점은 지적 대부분이 Suggestion이기 때문이다.
 - PR 번호와 `--base`를 함께 주거나, 위에 없는 인자가 있으면 아래 사용법을 보여 주고 멈춘다.
 
 ```
@@ -40,6 +41,7 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 /backend-lens:review transaction query    두 관점만
 /backend-lens:review #42                  PR 42
 /backend-lens:review --base develop       develop과 갈라진 지점부터
+/backend-lens:review --suggestions        Suggestion까지 모두 보여 준다
 ```
 
 ## 2. 범위와 변경 수집
@@ -134,6 +136,9 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 - 같은 파일에서 위치가 5줄 안으로 겹치고 원인이 같은 지적은 하나로 합친다. 찾아낸 관점을 모두 적고, 심각도와 확신도는 가장 높은 값을 쓴다. 원인이 다르면 위치가 같아도 합치지 않는다.
 - 지적을 새로 더하거나 빼지 않는다. 문장은 짧게 다듬어도 되지만 실패 시나리오, 가정, 고치는 방향의 뜻을 바꾸지 않는다.
 - 보고에는 결과만 쓴다. 앞서 한 말의 정정, 작업 경위, 다음에 돌릴 명령 제안을 넣지 않는다.
+- Suggestion은 1단계 규칙에 따라 보여 줄 때만 `## Suggestion` 절에 쓴다. 보여 주지 않을 때는 `## Suggestion` 절 대신 아래 한 줄만 쓰고, 합친 Suggestion은 이 대화에 남겨 둔다. 사용자가 같은 대화에서 보여 달라고 하면 다시 돌리지 않고 그대로 보여 준다.
+  `Suggestion <N>개는 숨겼다. 이 대화에서 "Suggestion 보여 줘"라고 하거나 --suggestions를 붙여 다시 돌리면 볼 수 있다.`
+  숨긴 Suggestion은 잘된 점과 권하는 처리 순서에도 넣지 않는다.
 - 아래 형식으로 결과 작성 언어로 보여 준다.
 
 ```
@@ -145,7 +150,7 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 - 참조 문서 없이 일반 원칙으로 본 기술: <목록 또는 없음>
 - 읽은 규칙 문서: <N>개 (<경로 목록, 홈 디렉토리는 ~로 줄임>)
 - 에이전트:
-  - <이름>: 지적 <N>개
+  - <이름>: 지적 <N>개(Critical <a>, Important <b>, Suggestion <c>)
   - <이름>: 건너뜀 (<이유>)
   - <이름>: 결과를 받지 못함
 
@@ -158,7 +163,7 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 
 ## Important (<N>)
 
-## Suggestion (<N>)
+## Suggestion (<N>)    (보여 줄 때만. 아니면 "Suggestion <N>개는 숨겼다..." 한 줄)
 
 ## 잘된 점
 
@@ -169,4 +174,4 @@ Bash 호출은 서로 셸 변수를 이어받지 않는다. 앞 단계에서 얻
 1. <Critical부터, 서로 얽힌 지적은 묶어서>
 ```
 
-지적이 하나도 없으면 심각도 절 대신 "이번 변경에서 기준을 넘는 지적이 없다"고 쓰고, 에이전트별 "확인하지 못한 것"을 짧게 모아 보여 준다.
+보여 줄 지적이 하나도 없으면 심각도 절 대신 "이번 변경에서 기준을 넘는 지적이 없다"고 쓰고(숨긴 Suggestion이 있으면 그 한 줄을 덧붙인다), 에이전트별 "확인하지 못한 것"을 짧게 모아 보여 준다.
