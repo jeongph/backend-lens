@@ -82,14 +82,18 @@ for f in agents/*.md; do
   [ -f "$f" ] || continue
   base=$(basename "$f" .md)
   name=$(awk 'NR==1 && $0!="---" {exit} NR>1 && $0=="---" {exit} /^name:/ {sub(/^name:[ \t]*/, ""); print; exit}' "$f")
-  [ "$name" = "$base" ] || err "$f: frontmatter name($name)이 파일 이름과 다름"
+  [ "$name" = "$base" ] || err "${f}: frontmatter name(${name})이 파일 이름과 다름"
 
-  grep -qxF "$START" "$f" && grep -qxF "$END" "$f" || { err "$f: 공통 규칙 블록 표시가 없음"; continue; }
-  block=$(awk -v s="$START" -v e="$END" '$0==s {on=1; next} $0==e {on=0} on' "$f")
+  starts=$(grep -cxF "$START" "$f"); ends=$(grep -cxF "$END" "$f")
+  if [ "$starts" != 1 ] || [ "$ends" != 1 ]; then err "${f}: 공통 규칙 블록 표시가 한 번씩 있어야 함(시작 ${starts}, 끝 ${ends})"; continue; fi
+  start_line=$(grep -nxF "$START" "$f" | cut -d: -f1); end_line=$(grep -nxF "$END" "$f" | cut -d: -f1)
+  [ "$start_line" -lt "$end_line" ] || { err "${f}: 공통 규칙 블록의 끝 표시가 시작 표시보다 앞에 있음"; continue; }
+  # $(...)는 끝 줄바꿈을 지우므로 표시 문자를 붙여 빈 줄 차이까지 비교한다.
+  block=$(awk -v s="$START" -v e="$END" '$0==s {on=1; next} $0==e {on=0} on' "$f"; printf x)
   if [ -z "$ref_file" ]; then
     ref_block="$block"; ref_file="$f"
   elif [ "$block" != "$ref_block" ]; then
-    err "$f: 공통 규칙 블록이 $ref_file과 다름"
+    err "${f}: 공통 규칙 블록이 ${ref_file}과 다름"
   fi
 done
 

@@ -4,7 +4,7 @@
 
 - 감지 신호는 백엔드 루트의 빌드 파일(`build.gradle`, `build.gradle.kts`, `pom.xml`, `settings.gradle(.kts)`), `buildSrc/`, `gradle/libs.versions.toml`, 소스 디렉토리 구조에서 찾는다. 코드 식별자 신호(`JdbcTemplate`, `JdbcClient`)는 `src/main` 아래 코드에서 찾는다. 신호 하나만 나와도 그 기술을 쓰는 것으로 본다.
 - 쓰는 에이전트 열에 이름이 있는 에이전트만 그 문서를 받는다.
-- 새 기술을 더할 때는 이 디렉토리에 문서 하나를 만들고 표 1에 행 하나를 더한다. 표 2에 있던 기술이면 표 2의 행을 지운다. 커맨드와 에이전트는 고치지 않는다.
+- 새 기술을 더할 때는 이 디렉토리에 문서 하나를 만들고 표 1에 행 하나를 더한다. 표 2에 있던 기술이면 표 2의 행을 지운다. 기술 지식은 참조 문서에만 둔다. 다만 마이그레이션 파일 경로처럼 커맨드의 변경 수집과 에이전트 선택 조건에 적힌 패턴은 기술에 따라 함께 더해야 할 수 있다(예: Liquibase의 changelog 경로).
 
 ## 참조 문서
 
@@ -30,6 +30,7 @@
 | MySQL, MariaDB | `mysql`, `mariadb` |
 | MyBatis | `mybatis` |
 | jOOQ | `jooq` |
-| R2DBC, WebFlux | `r2dbc`, `spring-boot-starter-webflux` |
+| R2DBC | `r2dbc` |
+| WebFlux | `spring-boot-starter-webflux`가 있고 `spring-boot-starter-web`, `spring-boot-starter-webmvc`, `spring-webmvc`가 없음(WebClient만 쓰려고 넣은 경우를 빼기 위해) |
 | Exposed | `org.jetbrains.exposed` |
 | MongoDB | `spring-boot-starter-data-mongodb` |
